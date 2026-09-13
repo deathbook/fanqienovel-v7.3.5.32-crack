@@ -141,6 +141,8 @@ module/    src/                       模块源码（10 个类）
            noroot/                    无 root 用：CrackPrivilegeManager + 桩
            build.ps1                  无 gradle 构建（aapt2 + javac + d8 + apksigner）
 frida/     fanqie_crack.js            Frida 等价实现
+probe/     ModuleProbe              诊断 APK：复刻 LSPosed 的模块扫描，用来分辨
+                                     「APK 的 meta-data 不可见」和「管理器看不到包」
 scripts/   dex_probe.py               ★ 直接解析 DEX 的精确定位工具
            bso_grep.py                .so 字节级检索
            verify_xposed_api.py       ★ Xposed API 链接期校验
@@ -173,12 +175,31 @@ sdkmanager "platforms;android-33" "build-tools;33.0.2"
 因为编译桩把返回值写成了 `void`，真值是 `XC_MethodHook$Unhook`。
 javac 只看桩，而桩按定义就是假的；**只有比对真框架才能发现**。
 
-### LSPosed 部署的两个坑
+### 模块在管理器里不显示？先查 manifest 的 meta-data 层级
+
+`<meta-data>` **必须是 `<application>` 的子节点**。写成兄弟节点
+（把 `<application ... />` 写成自闭合即可犯这个错）时：
+
+* aapt2 **不报错**
+* APK 正常安装
+* `getPackageInfo(pkg, GET_META_DATA).applicationInfo.metaData` 却是 **null**
+* LSPosed 管理器判定「是不是模块」只查 `metaData.containsKey("xposedminversion")`
+  → **永远扫不到**，但守护进程按数据库加载时功能又完全正常
+
+`module/verify_manifest_meta.ps1` 在构建期对着**编译产物**断言这一点。
+自检命令：
+
+```powershell
+adb shell "dumpsys package com.deathbook.fanqie.crack | grep -A8 metaData"
+```
+
+### LSPosed 部署的三个坑
 
 1. **LSPosed 存的是模块 APK 的绝对路径**。每次重装模块路径都会变，
    不更新数据库就永远加载旧包。`deploy_lsposed.ps1` 自动做这件事
    （等价于在管理器里点开关，管理器列表刷不出来时也能用）。
-2. **模拟器需要「可写系统盘」**。MuMu 官方文档路径：
+2. **管理器列表要能看到模块，`meta-data` 必须在 `<application>` 里**。见上一节。
+3. **模拟器需要「可写系统盘」**。MuMu 官方文档路径：
    设置 → 磁盘 → 可写系统盘；其他 → 开启 Root；然后 Kitsune Mask
    **直接安装（直接修改 /system）** → Zygisk → LSPosed v1.8.6。
 

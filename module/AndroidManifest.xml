@@ -5,6 +5,29 @@
   There is deliberately no Activity: Xposed modules are driven entirely by the
   meta-data below plus assets/xposed_init, and an empty launcher would only add
   something for a detector to notice.
+
+  ==========================================================================
+  The meta-data elements MUST be children of <application>.
+
+  This file once closed <application ... /> as a self-closing tag and put the
+  meta-data next to it, i.e. as children of <manifest>. aapt2 compiles that
+  without a word and the APK installs normally, but PackageManager then never
+  attaches those items to ApplicationInfo, so the app observes
+
+      getPackageInfo(pkg, GET_META_DATA).applicationInfo.metaData == null
+
+  LSPosed's manager decides "is this a module" by checking
+
+      Bundle b = pi.applicationInfo.metaData;
+      if (b != null && b.containsKey("xposedminversion")) { it is a module }
+
+  A null Bundle therefore means the module never appears in the manager list,
+  even though LSPosed's daemon will happily load and run it once the database
+  row is written by hand. That combination is what let the bug survive testing.
+
+  module/verify_manifest_meta.ps1 now asserts on the COMPILED manifest, because
+  the source looks entirely plausible either way.
+  ==========================================================================
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.deathbook.fanqie.crack"
@@ -19,24 +42,24 @@
         android:label="番茄小说破解 FanQieCrack"
         android:description="@string/module_description"
         android:allowBackup="false"
-        android:hasCode="true" />
+        android:hasCode="true">
 
-    <!-- ================= Xposed / LSPosed wiring ================= -->
-    <meta-data
-        android:name="xposedmodule"
-        android:value="true" />
-    <meta-data
-        android:name="xposeddescription"
-        android:value="@string/module_description" />
-    <meta-data
-        android:name="xposedminversion"
-        android:value="93" />
-    <meta-data
-        android:name="xposedsharedprefs"
-        android:value="true" />
-    <!-- Pre-select the target so the user does not have to find it by hand. -->
-    <meta-data
-        android:name="xposedscope"
-        android:resource="@array/xposedscope" />
+        <meta-data
+            android:name="xposedmodule"
+            android:value="true" />
+        <meta-data
+            android:name="xposeddescription"
+            android:value="@string/module_description" />
+        <meta-data
+            android:name="xposedminversion"
+            android:value="93" />
+        <meta-data
+            android:name="xposedsharedprefs"
+            android:value="true" />
+        <meta-data
+            android:name="xposedscope"
+            android:resource="@array/xposedscope" />
+
+    </application>
 
 </manifest>

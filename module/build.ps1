@@ -135,6 +135,13 @@ Step 'aapt2 link (manifest + assets)'
     (Join-Path $work 'compiled.zip')
 if ($LASTEXITCODE -ne 0) { Fail 'aapt2 link failed' }
 
+# aapt2 silently accepts <meta-data> outside <application>, and the resulting
+# APK installs and even runs -- but PackageManager then reports a null metaData
+# Bundle and LSPosed never lists the module. See the script for the full story.
+Step 'verify Xposed meta-data nesting'
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'verify_manifest_meta.ps1') -Aapt2 $aapt2 -Apk $baseApk
+if ($LASTEXITCODE -ne 0) { Fail 'compiled manifest is missing the Xposed meta-data inside <application>' }
+
 # --------------------------------------------------------------------------
 # 3. compile
 # --------------------------------------------------------------------------

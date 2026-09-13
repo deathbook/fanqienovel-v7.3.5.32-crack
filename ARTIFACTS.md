@@ -4,7 +4,7 @@
 
 | 文件 | 大小 | SHA256 | 说明 |
 |---|---|---|---|
-| `FanQieNovelCrack-lsposed-v1.0.apk` | 20,947 B | `1CE36781F9850D88EBEDB04519FA31EB291BDF785A2F42E84384A286B260D6C8` | LSPosed 模块。官方包一个字节都不动，装到已 root + LSPosed 的设备即可 |
+| `FanQieNovelCrack-lsposed-v1.0.apk` | 20,947 B | `0B1769E827BDDE707DC8707837F815FCC89BD0E9CA31BDCDDEE2002FAB06A8A4` | LSPosed 模块。官方包一个字节都不动，装到已 root + LSPosed 的设备即可 |
 
 ## 本地构建产物
 
@@ -40,5 +40,5 @@
 
 ```bash
 sha256sum FanQieNovelCrack-lsposed-v1.0.apk
-# 1CE36781F9850D88EBEDB04519FA31EB291BDF785A2F42E84384A286B260D6C8
+# 0B1769E827BDDE707DC8707837F815FCC89BD0E9CA31BDCDDEE2002FAB06A8A4
 ```

@@ -1,9 +1,75 @@
 # 踩过的坑
 
-按「症状 → 根因 → 修法」记。前六个是**真缺陷**，后四个是工具链/环境问题。
+按「症状 → 根因 → 修法」记。前七个是**真缺陷**，后五个是工具链/环境问题。
 
 ---
 
+## 0. 模块能跑，却不出现在 LSPosed 列表里 ← 最贵的一个
+
+**症状**
+
+* 管理器里**看不到这个模块**
+* 但 LSPosed 又弹了「`com.deathbook.fanqie.crack` 已更新，请强行停止并重新打开其作用域内的应用」
+* 手工写数据库启用后，功能**完全正常**（57 hooks 全中）
+
+**根因**：`AndroidManifest.xml` 里 `<application ... />` 写成了**自闭合**，
+`<meta-data>` 全成了 `<manifest>` 的子节点：
+
+```xml
+<application android:label="…" android:hasCode="true" />   <!-- ← 自闭合 -->
+
+<meta-data android:name="xposedminversion" android:value="93" />   <!-- ← 成了 manifest 的孩子 -->
+```
+
+aapt2 **不报任何错**，APK 正常安装。但 PackageManager 不会把这些项挂到
+`ApplicationInfo` 上，于是：
+
+```
+getPackageInfo(pkg, GET_META_DATA).applicationInfo.metaData == null
+```
+
+LSPosed 管理器判定「是不是模块」只看一件事（反编译 `am`/`Yl` 得到）：
+
+```java
+for (PackageInfo pi : pm.getInstalledPackages(0x4C2280, false)) {
+    Bundle b = pi.applicationInfo.metaData;
+    if (b != null && b.containsKey("xposedminversion")) { /* 是模块 */ }
+}
+```
+
+`Bundle` 为 null → 永远扫不到。
+
+**为什么这个 bug 能活过测试**：LSPosed **守护进程**是按数据库里的
+`apk_path` 加载模块的，跟 meta-data 无关。而我当时是用
+`scripts/deploy_lsposed.ps1` 直写数据库启用的，正好绕开了管理器扫描——
+于是「模块明明能跑」这个强有力的证据，把 manifest 有问题这个结论挡在了外面。
+
+**定位方式**：写了一个探针 APK（`probe/`），完整复刻 LSPosed 的扫描逻辑，
+用一个普通 App 的身份去问 PackageManager：
+
+```
+getPackageInfo(com.deathbook.fanqie.crack, 0x80 /* GET_META_DATA */)
+    -> ai=true metaData=null          ← 一眼就是它
+```
+
+修完再跑一次：
+
+```
+    -> ai=true metaData=size=5
+       xposedmodule = true (java.lang.Boolean)
+```
+
+**修法**：
+1. 把 `<meta-data>` 全部挪进 `<application>…</application>` 里
+2. 加 `module/verify_manifest_meta.ps1`，**在构建期对着编译后的 manifest 断言**——
+   `aapt2 dump xmltree` 的缩进就是嵌套层级，检查 `xposedminversion`
+   确实比 `<application>` 深一层。源码层面根本看不出问题，编译产物才能。
+
+> 教训：**「功能正常」不等于「装配正确」。**
+> 一条能跑通的路径（直写数据库）会把另一条路径（管理器扫描）上的缺陷完全掩盖。
+> 一旦有两条等价入口，就必须两条都验。
+
+---
 ## 1. 55 个 hook 全部装上，然后全部失效
 
 **症状**
