@@ -175,6 +175,32 @@ sdkmanager "platforms;android-33" "build-tools;33.0.2"
 因为编译桩把返回值写成了 `void`，真值是 `XC_MethodHook$Unhook`。
 javac 只看桩，而桩按定义就是假的；**只有比对真框架才能发现**。
 
+### 三个标识（装完先核对这三行）
+
+| 项 | 值 |
+|---|---|
+| 模块名（管理器里显示） | `番茄小说破解 FanQieCrack` |
+| 模块包名 | `com.deathbook.fanqie.crack` |
+| 作用域（唯一需要勾选的应用） | `番茄免费小说` / `com.dragon.read` |
+
+装完之后如果出现 toast：
+
+> **com.deathbook.fanqie.crack 已更新，请强行停止并重新打开其作用域内的应用**
+
+这是 LSPosed 的**正常提示**，含义是「模块已注册、已启用、且已配好作用域，
+只是作用域内的进程还停在旧状态」。照做就行：
+
+```powershell
+adb shell am force-stop com.dragon.read
+adb shell monkey -p com.dragon.read -c android.intent.category.LAUNCHER 1
+```
+
+**它并不代表管理器里能看到模块。** toast 来自守护进程 `lspd` 读数据库，
+而管理器的模块列表走的是另一条路——扫描已安装包的 `metaData`。
+两条路互不依赖，所以「收到 toast 但列表里没有」是完全可能的组合：
+框架已经在按数据库加载模块（功能正常），管理器却扫不到它（列表为空）。
+后者的成因见下一节。
+
 ### 模块在管理器里不显示？先查 manifest 的 meta-data 层级
 
 `<meta-data>` **必须是 `<application>` 的子节点**。写成兄弟节点
