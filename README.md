@@ -146,11 +146,16 @@ probe/     ModuleProbe              诊断 APK：复刻 LSPosed 的模块扫描�
 scripts/   dex_probe.py               ★ 直接解析 DEX 的精确定位工具
            bso_grep.py                .so 字节级检索
            verify_xposed_api.py       ★ Xposed API 链接期校验
+           repoint_module.py          ★ 把库里存的 apk_path 指向真实路径
            deploy_lsposed.ps1         部署 + 自动重指向 LSPosed 数据库
            build_noroot_apk.ps1       纯 smali 补丁版无 root 包
 ```
 
-**二进制产物在 Releases**：`FanQieNovelCrack-lsposed-v1.0.apk`（20,947 B）。
+**二进制产物在 Releases**：`FanQieNovelCrack-lsposed-v1.1.apk`（21,168 B）。
+
+> **用 v1.1。** v1.0 的模块只有一条被识别通道（manifest 的 `xposedminversion`），
+> 在个别设备上会表现为「管理器列表里没有它、hook 也不生效」。v1.1 同时带两条通道，
+> 并且 `versionCode` 从 1 升到 2，`dumpsys` 一眼就能确认设备上装的是哪一版。
 
 ---
 
@@ -228,6 +233,63 @@ adb shell "dumpsys package com.deathbook.fanqie.crack | grep -A8 metaData"
 3. **模拟器需要「可写系统盘」**。MuMu 官方文档路径：
    设置 → 磁盘 → 可写系统盘；其他 → 开启 Root；然后 Kitsune Mask
    **直接安装（直接修改 /system）** → Zygisk → LSPosed v1.8.6。
+
+### Vector（LSPosed 的现行分支）
+
+Vector 不是另一个框架，它是 LSPosed 重写后的分支，并且**刻意复用了同一套落盘布局**：
+
+```kotlin
+// daemon/src/main/kotlin/org/matrix/vector/daemon/data/FileSystem.kt
+val basePath: Path       = Paths.get("/data/adb/lspd")
+val configDirPath: Path  = basePath.resolve("config")
+val dbPath: File         = configDirPath.resolve("modules_config.db").toFile()
+```
+
+路径、表名、列名都和 LSPosed 一致（它启动时还会把 LSPosed 的库备份成
+`modules_config_lsposed.db` 再迁移）。**所以本仓库的脚本在 Vector 上不用改。**
+
+它值得单独一节，是因为它把「**识别**模块」和「**加载**模块」拆成了两条互不相干的判断：
+
+| 判断 | 位置 | 依据 |
+|---|---|---|
+| 识别 | manager 的 `ModuleDetection.inspect` | `metaData.containsKey("xposedminversion")` **或** APK 里有 `META-INF/xposed/java_init.list` |
+| 加载 | daemon 的 `FileSystem.loadModule` | `module.prop` 的 `targetApiVersion` ≥101 → MODERN；有 `assets/xposed_init` → LEGACY |
+
+v1.0 只走了前者中的第一条通道，于是在 `metaData` 为 null 的设备上：
+**daemon 因为库里已有行仍然认它（会发那条「已更新，请强制停止」的 toast），
+manager 却永远扫不到它**——「toast 有、列表没有、hook 不生效」这三个症状同时出现。
+
+v1.1 因此同时装两条识别通道，而 `module.prop` **故意不写 `targetApiVersion`**：
+
+```
+META-INF/xposed/module.prop      # 只写 minApiVersion=93
+META-INF/xposed/java_init.list   # 存在即可，内容只是注释
+META-INF/xposed/scope.list       # com.dragon.read
+```
+
+这不是可有可无的冗余，**`targetApiVersion` 一旦写成 101+ 就必须删掉**：
+加载会改走 MODERN 分支去找 libxposed 入口类，而本模块只实现 legacy 的
+`de.robv.android.xposed` API。那时的症状会变成「列表里有、hook 一个都不装」——
+**比看不见更糟，因为它看起来是好的**。`build.ps1` 的 `verify module markers`
+步对打包后的最终 APK 断言这一点。
+
+另外两个踩到的点：
+
+1. **列表为空 ≠ 模块不合格。** Vector 的模块列表不扫本机包，而是问 daemon：
+
+   ```kotlin
+   val users = daemonClient.getUsers().getOrNull() ?: emptyList()          // ①
+   val packages = daemonClient.getInstalledPackagesFromAllUsers(flags)     // ②
+       .getOrElse { logE("modules: installed package list unavailable, showing no modules"); emptyList() }
+   return users.map { ... }.filter { it.modules.isNotEmpty() }.ifEmpty { it.take(1) }
+   ```
+
+   ①或②任一失败，列表就是整页空白，与模块本身无关。所以
+   **「别的模块都在、就这一个没有」是判定问题；「整页空白」是 daemon/IPC 问题**，
+   这两个症状要往完全相反的方向查。
+2. **`versionCode` 必须跟着改。** v1.0 修复前后都是 `versionCode=1`，
+   光看 `dumpsys` 分不出设备上装的是哪一版，也没法确认覆盖安装到底生效没有。
+   v1.1 用 `versionCode=2`，一次 `dumpsys` 就能验。
 
 ---
 

@@ -1,0 +1,12 @@
+# Detection marker only -- this file is deliberately NOT a class list.
+#
+# Vector's manager treats the presence of this entry as proof that the package
+# is a module, which is the whole reason it ships: it gets the module into the
+# manager's list even on a device where the legacy xposedminversion meta-data
+# does not reach ApplicationInfo.metaData.
+#
+# It is never read on this APK, because module.prop declares no targetApiVersion
+# and therefore FileSystem.loadModule selects the LEGACY strategy and reads
+# assets/xposed_init instead. The class list below would only come into play if
+# something forced the MODERN path, and a legacy de.robv.android.xposed module
+# has no libxposed entry class to name.

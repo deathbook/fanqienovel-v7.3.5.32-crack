@@ -22,14 +22,22 @@
 #>
 [CmdletBinding()]
 param(
-    [string] $SdkRoot = "$PSScriptRoot\..\work\android-sdk",
+    # Left unset on purpose, and resolved further down. $PSScriptRoot is not
+    # yet bound while a param block's default values are evaluated under
+    # `powershell -File`, so "$PSScriptRoot\..\work\android-sdk" silently
+    # collapses to "\..\work\android-sdk" and the documented invocation dies on
+    #     missing build tool: \..\work\android-sdk\build-tools\33.0.2\aapt2.exe
+    # which reads as "the SDK is not installed" rather than "a variable was
+    # empty". Passing every path explicitly works around it; resolving after
+    # the param block removes the trap for good.
+    [string] $SdkRoot,
     [string] $BuildToolsVersion = '33.0.2',
     [int]    $ApiLevel = 33,
-    [string] $OutDir = "$PSScriptRoot\..\dist",
-    [string] $Keystore = "$PSScriptRoot\..\work\fanqiecrack.jks",
+    [string] $OutDir,
+    [string] $Keystore,
     [string] $StorePass = 'fanqiecrack',
     [string] $KeyAlias  = 'fanqiecrack',
-    [string] $FrameworkDex = "$PSScriptRoot\..\work\lspd.dex",
+    [string] $FrameworkDex,
     [string] $DeviceSerial = '127.0.0.1:16384',
     [switch] $NoSign
 )
@@ -45,6 +53,18 @@ Set-StrictMode -Version Latest
 
 function Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
 function Fail($msg) { Write-Host "!!! $msg" -ForegroundColor Red; exit 1 }
+
+# --------------------------------------------------------------------------
+# 0a. resolve the paths that cannot be defaulted in the param block
+# --------------------------------------------------------------------------
+$ScriptRoot = $PSScriptRoot
+if ([string]::IsNullOrEmpty($ScriptRoot)) {
+    Fail '$PSScriptRoot is empty -- run this as a script file, not through the pipeline'
+}
+if ([string]::IsNullOrEmpty($SdkRoot))      { $SdkRoot      = Join-Path $ScriptRoot '..\work\android-sdk' }
+if ([string]::IsNullOrEmpty($OutDir))       { $OutDir       = Join-Path $ScriptRoot '..\dist' }
+if ([string]::IsNullOrEmpty($Keystore))     { $Keystore     = Join-Path $ScriptRoot '..\work\fanqiecrack.jks' }
+if ([string]::IsNullOrEmpty($FrameworkDex)) { $FrameworkDex = Join-Path $ScriptRoot '..\work\lspd.dex' }
 
 # --------------------------------------------------------------------------
 # 0. locate tools
@@ -206,16 +226,42 @@ if (-not (Test-Path $FrameworkDex)) {
 if ($LASTEXITCODE -ne 0) { Fail 'module references Xposed members that do not exist in the framework' }
 
 # --------------------------------------------------------------------------
-# 5. pack classes.dex into the apk
+# 5. pack classes.dex + the modern detection markers
 # --------------------------------------------------------------------------
 Step 'pack classes.dex'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+# META-INF/xposed/* is a SECOND detection channel. Xposed implementations with
+# a modern (libxposed) path decide "is this a module" from the mere presence of
+# META-INF/xposed/java_init.list and never look at the legacy xposedminversion
+# meta-data, so shipping both means one null metaData Bundle can no longer make
+# the module invisible to the manager.
+#
+# targetApiVersion is deliberately unset in module.prop: the loader chooses its
+# strategy from that key and assets/xposed_init, so leaving it out keeps this a
+# legacy module. These markers widen DETECTION only -- see the comment inside
+# module/meta-modern/META-INF/xposed/module.prop.
+$metaRoot = Join-Path $PSScriptRoot 'meta-modern'
+$metaFiles = @(Get-ChildItem $metaRoot -Recurse -File | ForEach-Object {
+    [pscustomobject]@{
+        Path  = $_.FullName
+        Entry = $_.FullName.Substring($metaRoot.Length + 1).Replace('\', '/')
+    }
+})
+if ($metaFiles.Count -eq 0) { Fail "no detection markers under $metaRoot" }
+
 $zip = [System.IO.Compression.ZipFile]::Open($baseApk, 'Update')
 try {
-    $existing = $zip.Entries | Where-Object { $_.FullName -eq 'classes.dex' }
-    if ($existing) { $zip.Entries.Remove($existing) | Out-Null }
+    foreach ($entry in @('classes.dex') + @($metaFiles.Entry)) {
+        $existing = $zip.Entries | Where-Object { $_.FullName -eq $entry }
+        if ($existing) { $zip.Entries.Remove($existing) | Out-Null }
+    }
     [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
         $zip, $classesDex, 'classes.dex', [System.IO.Compression.CompressionLevel]::Optimal)
+    foreach ($m in $metaFiles) {
+        [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+            $zip, $m.Path, $m.Entry, [System.IO.Compression.CompressionLevel]::Optimal)
+    }
 } finally { $zip.Dispose() }
 
 # --------------------------------------------------------------------------
@@ -226,8 +272,49 @@ Step 'zipalign'
 & $zipalign -f -p 4 $baseApk $aligned
 if ($LASTEXITCODE -ne 0) { Fail 'zipalign failed' }
 
-$finalApk = Join-Path $OutDir 'FanQieNovelCrack-lsposed-v1.0.apk'
+$finalApk = Join-Path $OutDir 'FanQieNovelCrack-lsposed-v1.1.apk'
 Copy-Item $aligned $finalApk -Force
+
+# --------------------------------------------------------------------------
+# 6b. assert both detection channels survived packing
+# --------------------------------------------------------------------------
+# The legacy channel lives in the compiled manifest (checked above, on
+# $baseApk) and the modern one lives in the zip's entries, so neither check
+# covers the other and both have to run against the file that ships.
+Step 'verify module markers'
+$finalNames = @()
+$propText = ''
+$zip = [System.IO.Compression.ZipFile]::OpenRead($finalApk)
+try {
+    $finalNames = @($zip.Entries | ForEach-Object { $_.FullName })
+    $propEntry = $zip.Entries | Where-Object { $_.FullName -eq 'META-INF/xposed/module.prop' } |
+                 Select-Object -First 1
+    if ($propEntry) {
+        $reader = New-Object System.IO.StreamReader($propEntry.Open())
+        $propText = $reader.ReadToEnd()
+        $reader.Dispose()
+    }
+} finally { $zip.Dispose() }
+
+$requiredEntries = @(
+    'classes.dex'
+    'assets/xposed_init'
+    'META-INF/xposed/java_init.list'
+    'META-INF/xposed/module.prop'
+    'META-INF/xposed/scope.list'
+)
+$missing = @($requiredEntries | Where-Object { $finalNames -notcontains $_ })
+if ($missing) { Fail "final APK is missing entries: $($missing -join ', ')" }
+
+# A targetApiVersion of 101+ moves the loader to the MODERN branch, which would
+# look for a libxposed entry class this legacy module does not have. The module
+# would then be listed by the manager and silently fail to load -- worse than
+# being invisible, because it looks like it works.
+if ($propText -match '(?m)^\s*targetApiVersion\s*=') {
+    Fail 'module.prop declares targetApiVersion; the loader would take the MODERN strategy but this module is legacy-only'
+}
+Write-Host '    detection: legacy xposedminversion meta-data  +  META-INF/xposed markers' -ForegroundColor DarkGray
+Write-Host '    loading:   LEGACY (assets/xposed_init), targetApiVersion unset' -ForegroundColor DarkGray
 
 if (-not $NoSign) {
     if (-not (Test-Path $Keystore)) {

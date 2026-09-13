@@ -1,0 +1,22 @@
+# Present so that Xposed implementations with a "modern" (libxposed) module
+# detection path recognise this APK as a module WITHOUT having to read the
+# legacy xposedminversion meta-data.
+#
+# IMPORTANT: `targetApiVersion` is deliberately absent, and must stay absent.
+#
+# Vector decides how to LOAD a module from this file and assets/xposed_init,
+# not from the detection markers (FileSystem.loadModule):
+#
+#     targetApi >= 101 -> MODERN
+#     assets/xposed_init present -> LEGACY      <- this module
+#     targetApi == 100 -> UNSUPPORTED
+#     else -> NONE
+#
+# but it decides whether the package IS a module from either the legacy
+# meta-data OR the mere presence of META-INF/xposed/java_init.list
+# (ModuleDetection.inspect). Declaring targetApiVersion here would move the
+# loader onto the MODERN branch and break a module that implements the legacy
+# de.robv.android.xposed API and nothing else.
+minApiVersion=93
+name=FanQieNovelCrack
+description=番茄小说 v7.3.5.32 课程样本：破解会员 / 去除广告 / 无限时长自动阅读（仅对 com.dragon.read 生效）
