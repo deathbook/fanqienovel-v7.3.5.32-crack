@@ -1,0 +1,27 @@
+# build outputs
+dist/
+module/build/
+work/
+
+# SDK / toolchain
+android-sdk/
+*.keystore
+*.jks
+
+# sample & decoded trees (large, reproducible from the download link)
+*.apk
+!module/**/*.apk
+original.apk
+apktool/
+smali*/
+*.dex
+
+# logs
+*.log
+!evidence/*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

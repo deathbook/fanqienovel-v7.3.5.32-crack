@@ -1,0 +1,21 @@
+﻿- Device platform: x86_64
+- Installing: v27.1-30370a9d-kitsune (27001)
+****************************
+ Magisk Delta (System Mode) 
+ by HuskyDG 
+****************************
+*******************
+ Powered by Magisk 
+*******************
+umount: can't unmount /proc/6526/attr: Invalid argument
+- Remount system partition as read-write
+- Cleaning up enviroment...
+20000+0 records in
+20000+0 records out
+20480000 bytes (19.5MB) copied, 0.028613 seconds, 682.6MB/s
+- Copy files to system partition
+- Check if kernel supports dynamic SELinux Policy patch
+- Add init boot script
+[*] Reflash your ROM if your ROM is unable to start
+    and do not use this method to install Magisk
+- All done!

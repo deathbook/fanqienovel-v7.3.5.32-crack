@@ -1,0 +1,16 @@
+# Normalise line endings so the repo is checkout-identical on Windows and Linux.
+* text=auto eol=lf
+
+# Windows-native scripts want CRLF in a working tree, but the files here are
+# authored with LF and PowerShell handles both -- keeping them LF avoids a
+# spurious whole-file diff on every checkout.
+*.ps1  text eol=lf
+*.bat  text eol=lf
+*.cmd  text eol=lf
+
+# Binary
+*.apk  binary
+*.dex  binary
+*.so   binary
+*.jar  binary
+*.jks  binary

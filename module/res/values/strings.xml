@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="module_description">番茄小说 v7.3.5.32 课程样本：破解会员 / 去除广告 / 无限时长自动阅读（仅对 com.dragon.read 生效）</string>
+    <string-array name="xposedscope">
+        <item>com.dragon.read</item>
+    </string-array>
+</resources>
